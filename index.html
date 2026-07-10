@@ -323,7 +323,8 @@ function buildCard(c,i){
       const tools=el("div","art-tools");
       const bLock=el("button","abtn lock"); bLock.onmousedown=e=>e.stopPropagation();
       bLock.onclick=e=>{ e.stopPropagation(); c.locked=!c.locked; reflectLock(); save(CHAR_KEY,chars); };
-      const bChange=el("button","abtn"); bChange.textContent="⟳"; bChange.title="이미지 변경";
+      const bChange=el("button","abtn"); bChange.title="이미지 다시 첨부";
+      bChange.innerHTML='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
       bChange.onmousedown=e=>e.stopPropagation();
       bChange.onclick=e=>{ e.stopPropagation(); file.click(); };
       const bReset=el("button","abtn"); bReset.textContent="⤢"; bReset.title="맞춤 초기화";
@@ -403,6 +404,7 @@ function attachPanZoom(art,c){
 
   art.addEventListener("pointerdown", e=>{
     if(!c.img || c.locked) return;
+    if(e.target.closest && e.target.closest(".art-tools")) return;
     art.setPointerCapture(e.pointerId);
     ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(ptrs.size===1){ mode="pan"; sx=e.clientX; sy=e.clientY; startOx=c.ox||0; startOy=c.oy||0; }
