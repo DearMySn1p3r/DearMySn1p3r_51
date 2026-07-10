@@ -370,7 +370,11 @@ function buildCard(c,i){
   pick.oninput=()=>{ c.accent=pick.value; dot.style.background=pick.value;
     const ph=art.querySelector(".art-ph"); if(ph&&!c.img) paintPh(ph,c); save(CHAR_KEY,chars); };
   dwrap.append(dot,pick);
-  const num=el("span","num"); num.textContent=String(i+1).padStart(2,"0");
+  const num=el("span","num"); num.contentEditable=true; num.spellcheck=false;
+  const autoNum=String(i+1).padStart(2,"0");
+  num.textContent=(c.num!=null && c.num!=="") ? c.num : autoNum;
+  bindEditable(num, v=>{ const t=v.trim(); c.num=(t===""||t===autoNum)?"":t; save(CHAR_KEY,chars); });
+  num.addEventListener("blur", ()=>{ if(!c.num) num.textContent=autoNum; });
   idx.append(dwrap,num);
 
   const name=el("div","name"); name.contentEditable=true; name.spellcheck=false;
@@ -608,7 +612,9 @@ function drawScene(ctx,W,H,PAD,CARD_H,GAP,HEAD,introOn,imgs,f,REVEAL,STAGGER,STA
   chars.forEach((c,i)=>{
     const local=f-START_HOLD-i*STAGGER;
     let p=local<=0?0:(local>=REVEAL?1:local/REVEAL);
-    if(p>0){ const e=easeOut(p); const layer=renderCardLayer(w,CARD_H,c,imgs[i],String(i+1).padStart(2,"0"));
+    if(p>0){ const e=easeOut(p);
+      const nstr=(c.num!=null && c.num!=="") ? c.num : String(i+1).padStart(2,"0");
+      const layer=renderCardLayer(w,CARD_H,c,imgs[i],nstr);
       ctx.save(); ctx.globalAlpha=Math.min(1,e*1.4);
       ctx.drawImage(layer, x, y+(1-e)*8); ctx.restore(); }
     y+=CARD_H+GAP;
