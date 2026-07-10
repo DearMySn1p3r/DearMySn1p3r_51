@@ -88,7 +88,7 @@
   .card .abtn:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .card .abtn.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
   .card .art.has.locked{ cursor:default; }
-  .card .grip{ position:absolute; top:10px; left:10px; z-index:6;
+  .card .grip{ position:absolute; top:10px; right:38px; z-index:6;
     width:22px; height:22px; border-radius:6px; border:1px solid var(--line); cursor:grab;
     background:var(--card); color:var(--sub); font-size:11px; line-height:1; padding:0;
     display:flex; align-items:center; justify-content:center; opacity:0;
@@ -215,8 +215,8 @@
    ===================================================================== */
 const DEFAULT_META  = { eyebrow:"PERSONA ROSTER", title:"PROFILE DECK MAKER", intro:"" };
 const DEFAULT_CHARS = [
-  { num:"01", name:"", role:"", img:null, accent:"#e2c2c6" },
-  { num:"02", name:"", role:"", img:null, accent:"#c7cfd8" },
+  { name:"", role:"", img:null, accent:"#e2c2c6" },
+  { name:"", role:"", img:null, accent:"#c7cfd8" },
 ];
 const DEFAULT_THEME = { bg:"#fcfcfc", card:"#ffffff", ink:"#2c2e33", sub:"#8b909a" };
 const SWATCHES = ["#e2c2c6","#c7cfd8","#d2dcd5","#d3cbe0","#ebd4bc","#c4d7cd","#dfc9c9","#b1c0d4"];
@@ -288,7 +288,10 @@ function layoutArtImg(art, im, c){
   const cover=Math.max(bw/iw, bh/ih);
   const s=cover*(c.scale||1);
   const dw=iw*s, dh=ih*s;
-  const cx=bw/2 + (c.ox||0)*bw, cy=bh/2 + (c.oy||0)*bh;
+  const maxOx=Math.max(0,(dw-bw)/(2*bw)), maxOy=Math.max(0,(dh-bh)/(2*bh));
+  c.ox=Math.max(-maxOx, Math.min(maxOx, c.ox||0));
+  c.oy=Math.max(-maxOy, Math.min(maxOy, c.oy||0));
+  const cx=bw/2 + c.ox*bw, cy=bh/2 + c.oy*bh;
   im.style.width=dw+"px"; im.style.height=dh+"px";
   im.style.transform=`translate(${cx-dw/2}px, ${cy-dh/2}px)`;
 }
@@ -300,7 +303,7 @@ function relayoutCards(){
   });
 }
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-const clampScale=s=>Math.max(0.3, Math.min(6, s));
+const clampScale=s=>Math.max(1, Math.min(6, s));
 
 function buildCard(c,i){
   const card=el("div","card"); card.dataset.ci=i;
@@ -367,9 +370,7 @@ function buildCard(c,i){
   pick.oninput=()=>{ c.accent=pick.value; dot.style.background=pick.value;
     const ph=art.querySelector(".art-ph"); if(ph&&!c.img) paintPh(ph,c); save(CHAR_KEY,chars); };
   dwrap.append(dot,pick);
-  const num=el("span","num"); num.contentEditable=true; num.spellcheck=false;
-  num.dataset.ph="00"; num.textContent=c.num;
-  bindEditable(num, v=>{ c.num=v; save(CHAR_KEY,chars); });
+  const num=el("span","num"); num.textContent=String(i+1).padStart(2,"0");
   idx.append(dwrap,num);
 
   const name=el("div","name"); name.contentEditable=true; name.spellcheck=false;
@@ -491,8 +492,8 @@ function attachReorder(grip, card){
 }
 
 function addChar(){
-  chars.push({ num:String(chars.length+1).padStart(2,"0"), name:"", role:"",
-               img:null, accent:SWATCHES[chars.length % SWATCHES.length] });
+  chars.push({ name:"", role:"", img:null,
+               accent:SWATCHES[chars.length % SWATCHES.length] });
   save(CHAR_KEY,chars); render();
   const all=cardsEl.querySelectorAll(".card");
   const last=all[all.length-1]; if(last){ const nm=last.querySelector(".name"); nm&&nm.focus(); }
@@ -607,42 +608,49 @@ function drawScene(ctx,W,H,PAD,CARD_H,GAP,HEAD,introOn,imgs,f,REVEAL,STAGGER,STA
   chars.forEach((c,i)=>{
     const local=f-START_HOLD-i*STAGGER;
     let p=local<=0?0:(local>=REVEAL?1:local/REVEAL);
-    if(p>0) drawCard(ctx,c,imgs[i],x,y,w,CARD_H,easeOut(p));
+    if(p>0){ const e=easeOut(p); const layer=renderCardLayer(w,CARD_H,c,imgs[i],String(i+1).padStart(2,"0"));
+      ctx.save(); ctx.globalAlpha=Math.min(1,e*1.4);
+      ctx.drawImage(layer, x, y+(1-e)*8); ctx.restore(); }
     y+=CARD_H+GAP;
   });
 }
 
-function drawCard(ctx,c,img,x,y,w,h,e){
-  ctx.save();
-  ctx.globalAlpha=Math.min(1,e*1.4);
-  roundRect(ctx,x,y,w,h,12); ctx.clip();
-  ctx.fillStyle=theme.card; ctx.fillRect(x,y,w,h);
+function hexA(h,a){ const [r,g,b]=h2rgb(h); return `rgba(${r},${g},${b},${a})`; }
 
-  const artX=x+w*0.48, artW=w-w*0.48;
-  ctx.save(); ctx.beginPath(); ctx.rect(artX,y,artW,h); ctx.clip();
-  if(img) drawImgT(ctx,img,artX,y,artW,h,c);
-  else{ const g=ctx.createLinearGradient(artX,y,artX+artW,y+h);
+function renderCardLayer(w,h,c,img,numStr){
+  if(!renderCardLayer._cv){ renderCardLayer._cv=document.createElement("canvas");
+    renderCardLayer._cx=renderCardLayer._cv.getContext("2d"); }
+  const cv=renderCardLayer._cv, cx=renderCardLayer._cx;
+  cv.width=w; cv.height=h; cx.clearRect(0,0,w,h);
+
+  cx.save(); roundRect(cx,0,0,w,h,12); cx.clip();
+  cx.fillStyle=theme.card; cx.fillRect(0,0,w,h);
+
+  const artX=w*0.48, artW=w-w*0.48;
+  cx.save(); cx.beginPath(); cx.rect(artX,0,artW,h); cx.clip();
+  if(img) drawImgT(cx,img,artX,0,artW,h,c);
+  else{ const g=cx.createLinearGradient(artX,0,artX+artW,h);
     g.addColorStop(0,c.accent); g.addColorStop(1,tint(c.accent,15));
-    ctx.fillStyle=g; ctx.fillRect(artX,y,artW,h); }
-  ctx.restore();
+    cx.fillStyle=g; cx.fillRect(artX,0,artW,h); }
+  cx.restore();
 
-  const vg=ctx.createLinearGradient(x,y,x+w,y);
-  vg.addColorStop(0,theme.card); vg.addColorStop(0.48,theme.card); vg.addColorStop(1,"rgba(255,255,255,0)");
-  ctx.fillStyle=vg; ctx.fillRect(x,y,w,h);
+  const vg=cx.createLinearGradient(0,0,w,0);
+  vg.addColorStop(0,theme.card); vg.addColorStop(0.48,theme.card); vg.addColorStop(1,hexA(theme.card,0));
+  cx.fillStyle=vg; cx.fillRect(0,0,w,h);
 
-  const tx=x+24, cy=y+h/2;
-  ctx.fillStyle=c.accent; ctx.beginPath(); ctx.arc(tx+4,cy-26,4,0,7); ctx.fill();
-  if(c.num){ ctx.fillStyle=theme.sub; ctx.font="400 10px Outfit, sans-serif"; ctx.letterSpacing="2px";
-    ctx.fillText(c.num, tx+14, cy-23); ctx.letterSpacing="0px"; }
-  ctx.fillStyle=theme.ink; ctx.font="400 22px Outfit, sans-serif"; ctx.letterSpacing="1px";
-  ctx.fillText(c.name||"", tx, cy+6); ctx.letterSpacing="0px";
-  ctx.fillStyle=theme.sub; ctx.font="400 12px Outfit, sans-serif";
-  ctx.fillText(clip(c.role||"",30), tx, cy+26);
-  ctx.restore();
+  const tx=24, cy=h/2;
+  cx.fillStyle=c.accent; cx.beginPath(); cx.arc(tx+4,cy-26,4,0,7); cx.fill();
+  if(numStr){ cx.fillStyle=theme.sub; cx.font="400 10px Outfit, sans-serif"; cx.letterSpacing="2px";
+    cx.fillText(numStr, tx+14, cy-23); cx.letterSpacing="0px"; }
+  cx.fillStyle=theme.ink; cx.font="400 22px Outfit, sans-serif"; cx.letterSpacing="1px";
+  cx.fillText(c.name||"", tx, cy+6); cx.letterSpacing="0px";
+  cx.fillStyle=theme.sub; cx.font="400 12px Outfit, sans-serif";
+  cx.fillText(clip(c.role||"",30), tx, cy+26);
+  cx.restore();
 
-  ctx.save(); ctx.globalAlpha=Math.min(1,e*1.4);
-  ctx.lineWidth=1; ctx.strokeStyle=mix(theme.sub,"#ffffff",.8);
-  roundRect(ctx,x+.5,y+.5,w-1,h-1,12); ctx.stroke(); ctx.restore();
+  cx.lineWidth=1; cx.strokeStyle=mix(theme.sub,"#ffffff",.8);
+  roundRect(cx,0.5,0.5,w-1,h-1,12); cx.stroke();
+  return cv;
 }
 
 function drawImgT(ctx,img,dx,dy,dw,dh,c){
@@ -650,7 +658,10 @@ function drawImgT(ctx,img,dx,dy,dw,dh,c){
   const cover=Math.max(dw/iw, dh/ih);
   const s=cover*(c.scale||1);
   const w2=iw*s, h2=ih*s;
-  const cx=dx+dw/2 + (c.ox||0)*dw, cy=dy+dh/2 + (c.oy||0)*dh;
+  const maxOx=Math.max(0,(w2-dw)/(2*dw)), maxOy=Math.max(0,(h2-dh)/(2*dh));
+  const ox=Math.max(-maxOx, Math.min(maxOx, c.ox||0));
+  const oy=Math.max(-maxOy, Math.min(maxOy, c.oy||0));
+  const cx=dx+dw/2 + ox*dw, cy=dy+dh/2 + oy*dh;
   ctx.drawImage(img, cx-w2/2, cy-h2/2, w2, h2);
 }
 function roundRect(ctx,x,y,w,h,r){ if(ctx.roundRect){ctx.beginPath();ctx.roundRect(x,y,w,h,r);return;}
