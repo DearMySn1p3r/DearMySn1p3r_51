@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Profile Deck Maker</title>
+<link rel="icon" type="image/png" href="./MOMO.png" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -69,11 +70,31 @@
   @keyframes unfold{ 0%{opacity:0; transform:translateY(10px);} 100%{opacity:1; transform:translateY(0);} }
   @media (prefers-reduced-motion:reduce){ .card{ animation:none; } }
 
-  .card .art{ position:absolute; inset:0 0 0 45%; background-size:cover;
-              background-position:center 26%; cursor:pointer; }
+  .card .art{ position:absolute; inset:0 0 0 48%; overflow:hidden; cursor:pointer; }
+  .card .art.has{ cursor:grab; touch-action:none; }
+  .card .art.has:active{ cursor:grabbing; }
+  .card .art-ph{ position:absolute; inset:0; }
+  .card .art-img{ position:absolute; left:0; top:0; max-width:none;
+    will-change:transform; user-select:none; -webkit-user-drag:none; pointer-events:none; }
   .card .art-hint{ position:absolute; inset:0; display:flex; align-items:center;
     justify-content:center; color:#fff; font-size:12px; letter-spacing:.05em;
     text-shadow:0 1px 6px rgba(0,0,0,.28); pointer-events:none; }
+  .card .art-tools{ position:absolute; right:8px; bottom:8px; z-index:4; display:flex; gap:5px;
+    opacity:0; transition:opacity .2s; }
+  .card:hover .art-tools{ opacity:1; }
+  .card .abtn{ width:22px; height:22px; border-radius:50%; border:1px solid rgba(0,0,0,.08);
+    background:rgba(255,255,255,.92); color:var(--ink); font-size:11px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; line-height:1; padding:0; }
+  .card .abtn:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .card .grip{ position:absolute; top:10px; left:10px; z-index:6;
+    width:22px; height:22px; border-radius:6px; border:1px solid var(--line); cursor:grab;
+    background:var(--card); color:var(--sub); font-size:11px; line-height:1; padding:0;
+    display:flex; align-items:center; justify-content:center; opacity:0;
+    transition:opacity .2s, background .2s, color .2s; touch-action:none; }
+  .card:hover .grip{ opacity:1; }
+  .card .grip:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .card.dragging{ opacity:.8; z-index:10; box-shadow:0 14px 32px -12px rgba(0,0,0,.28); }
+  .card.dragging .grip{ cursor:grabbing; }
   .card .veil{ position:absolute; inset:0; pointer-events:none;
     background:linear-gradient(90deg, var(--card) 0%, var(--card) 48%, rgba(255,255,255,0) 100%); }
 
@@ -248,40 +269,91 @@ function render(){
   chars.forEach((c,i)=> cardsEl.appendChild(buildCard(c,i)));
   const add=el("button","addcard"); add.textContent="＋"; add.setAttribute("aria-label","추가");
   add.onclick=addChar; cardsEl.appendChild(add);
+  relayoutCards();
 }
 
-function paintArt(art,c){
-  art.style.backgroundImage = c.img ? `url("${c.img}")`
-    : `linear-gradient(135deg, ${c.accent}, ${tint(c.accent,15)})`;
+function paintPh(elm,c){ elm.style.background=`linear-gradient(135deg, ${c.accent}, ${tint(c.accent,15)})`; }
+
+function layoutArtImg(art, im, c){
+  const bw=art.clientWidth, bh=art.clientHeight;
+  const iw=im.naturalWidth||im.width, ih=im.naturalHeight||im.height;
+  if(!iw||!ih||!bw||!bh) return;
+  const cover=Math.max(bw/iw, bh/ih);
+  const s=cover*(c.scale||1);
+  const dw=iw*s, dh=ih*s;
+  const cx=bw/2 + (c.ox||0)*bw, cy=bh/2 + (c.oy||0)*bh;
+  im.style.width=dw+"px"; im.style.height=dh+"px";
+  im.style.transform=`translate(${cx-dw/2}px, ${cy-dh/2}px)`;
 }
+function relayoutCards(){
+  cardsEl.querySelectorAll(".card").forEach(card=>{
+    const im=card.querySelector(".art-img"); if(!im) return;
+    const c=chars[+card.dataset.ci]; if(!c) return;
+    if(im.complete && im.naturalWidth) layoutArtImg(card.querySelector(".art"), im, c);
+  });
+}
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const clampScale=s=>Math.max(0.3, Math.min(6, s));
 
 function buildCard(c,i){
-  const card=el("div","card");
+  const card=el("div","card"); card.dataset.ci=i;
 
-  const art=el("div","art"); paintArt(art,c);
-  const hint=el("div","art-hint"); hint.textContent="＋ 이미지";
-  if(c.img) hint.style.display="none";
+  const art=el("div","art");
   const file=document.createElement("input"); file.type="file"; file.accept="image/*"; file.hidden=true;
-  art.append(hint,file);
-  art.onclick=()=>file.click();
+  art.append(file);
+
+  function mountImage(){
+    art.classList.add("has");
+    let im=art.querySelector(".art-img");
+    if(!im){ im=el("img","art-img"); art.insertBefore(im, art.firstChild); }
+    const ph=art.querySelector(".art-ph"); if(ph) ph.remove();
+    const hint=art.querySelector(".art-hint"); if(hint) hint.remove();
+    im.onload=()=>layoutArtImg(art,im,c);
+    im.src=c.img;
+    if(im.complete && im.naturalWidth) layoutArtImg(art,im,c);
+    if(!art.querySelector(".art-tools")){
+      const tools=el("div","art-tools");
+      const bChange=el("button","abtn"); bChange.textContent="⟳"; bChange.title="이미지 변경";
+      bChange.onmousedown=e=>e.stopPropagation();
+      bChange.onclick=e=>{ e.stopPropagation(); file.click(); };
+      const bReset=el("button","abtn"); bReset.textContent="⤢"; bReset.title="맞춤 초기화";
+      bReset.onmousedown=e=>e.stopPropagation();
+      bReset.onclick=e=>{ e.stopPropagation(); c.scale=1; c.ox=0; c.oy=0;
+        const im2=art.querySelector(".art-img"); if(im2) layoutArtImg(art,im2,c); save(CHAR_KEY,chars); };
+      tools.append(bChange,bReset); art.appendChild(tools);
+    }
+  }
+  function mountPh(){
+    art.classList.remove("has");
+    const im=art.querySelector(".art-img"); if(im) im.remove();
+    const tools=art.querySelector(".art-tools"); if(tools) tools.remove();
+    let ph=art.querySelector(".art-ph");
+    if(!ph){ ph=el("div","art-ph"); art.insertBefore(ph, art.firstChild); }
+    paintPh(ph,c);
+    if(!art.querySelector(".art-hint")){ const h=el("div","art-hint"); h.textContent="＋ 이미지"; art.appendChild(h); }
+  }
+  if(c.img) mountImage(); else mountPh();
+
+  art.onclick=()=>{ if(!c.img) file.click(); };
   file.onchange=e=>{ const f=e.target.files[0]; if(!f) return;
-    readImg(f,out=>{ c.img=out; paintArt(art,c); hint.style.display="none"; save(CHAR_KEY,chars); }); };
+    readImg(f,out=>{ c.img=out; c.scale=1; c.ox=0; c.oy=0; mountImage(); save(CHAR_KEY,chars); }); };
+  attachPanZoom(art,c);
 
   const veil=el("div","veil");
   veil.style.background=`linear-gradient(90deg, ${theme.card} 0%, ${theme.card} 48%, rgba(255,255,255,0) 100%)`;
 
   const info=el("div","info");
   const idx=el("div","idx");
-  const dw=el("label","dot-wrap");
+  const dwrap=el("label","dot-wrap");
   const dot=el("span","dot"); dot.style.background=c.accent;
   const pick=document.createElement("input"); pick.type="color"; pick.className="cpick"; pick.value=c.accent;
   pick.oninput=()=>{ c.accent=pick.value; dot.style.background=pick.value;
-    if(!c.img) paintArt(art,c); save(CHAR_KEY,chars); };
-  dw.append(dot,pick);
+    const ph=art.querySelector(".art-ph"); if(ph&&!c.img) paintPh(ph,c); save(CHAR_KEY,chars); };
+  dwrap.append(dot,pick);
   const num=el("span","num"); num.contentEditable=true; num.spellcheck=false;
   num.dataset.ph="00"; num.textContent=c.num;
   bindEditable(num, v=>{ c.num=v; save(CHAR_KEY,chars); });
-  idx.append(dw,num);
+  idx.append(dwrap,num);
 
   const name=el("div","name"); name.contentEditable=true; name.spellcheck=false;
   name.dataset.ph="Character"; name.textContent=c.name;
@@ -293,11 +365,90 @@ function buildCard(c,i){
 
   info.append(idx,name,role);
 
+  const grip=el("button","grip"); grip.textContent="⠿"; grip.setAttribute("aria-label","순서 이동");
+  attachReorder(grip, card);
+
   const kill=el("button","kill"); kill.textContent="✕"; kill.setAttribute("aria-label","삭제");
   kill.onclick=()=>{ chars.splice(i,1); save(CHAR_KEY,chars); render(); };
 
-  card.append(art,veil,info,kill);
+  card.append(art,veil,info,grip,kill);
   return card;
+}
+
+/* 카드 이미지: 드래그=이동, 휠/핀치=확대·축소, 더블클릭=초기화 */
+function attachPanZoom(art,c){
+  const ptrs=new Map(); let mode=null;
+  let sx,sy,startOx,startOy, startDist,startScale,startMidX,startMidY,startCOx,startCOy;
+  const im=()=>art.querySelector(".art-img");
+
+  art.addEventListener("pointerdown", e=>{
+    if(!c.img) return;
+    art.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size===1){ mode="pan"; sx=e.clientX; sy=e.clientY; startOx=c.ox||0; startOy=c.oy||0; }
+    else if(ptrs.size===2){ mode="pinch"; const p=[...ptrs.values()];
+      startDist=dist(p[0],p[1]); startScale=c.scale||1;
+      const r=art.getBoundingClientRect();
+      startMidX=((p[0].x+p[1].x)/2-r.left)/r.width-0.5;
+      startMidY=((p[0].y+p[1].y)/2-r.top)/r.height-0.5;
+      startCOx=c.ox||0; startCOy=c.oy||0; }
+  });
+  art.addEventListener("pointermove", e=>{
+    if(!c.img || !ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const bw=art.clientWidth, bh=art.clientHeight;
+    if(mode==="pan" && ptrs.size===1){
+      c.ox=startOx+(e.clientX-sx)/bw; c.oy=startOy+(e.clientY-sy)/bh;
+      const i2=im(); if(i2) layoutArtImg(art,i2,c);
+    } else if(mode==="pinch" && ptrs.size>=2){
+      const p=[...ptrs.values()]; const ns=clampScale(startScale*(dist(p[0],p[1])/startDist));
+      const ratio=ns/startScale;
+      c.ox=startMidX-(startMidX-startCOx)*ratio; c.oy=startMidY-(startMidY-startCOy)*ratio; c.scale=ns;
+      const i2=im(); if(i2) layoutArtImg(art,i2,c);
+    }
+  });
+  function end(e){ if(ptrs.has(e.pointerId)) ptrs.delete(e.pointerId);
+    if(ptrs.size===0){ mode=null; save(CHAR_KEY,chars); }
+    else if(ptrs.size===1){ mode="pan"; const p=[...ptrs.values()][0]; sx=p.x; sy=p.y; startOx=c.ox||0; startOy=c.oy||0; } }
+  art.addEventListener("pointerup",end); art.addEventListener("pointercancel",end);
+
+  art.addEventListener("wheel", e=>{
+    if(!c.img) return; e.preventDefault();
+    const r=art.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
+    const cur=c.scale||1, ns=clampScale(cur*Math.exp(-e.deltaY*0.0015)), ratio=ns/cur;
+    c.ox=px-(px-(c.ox||0))*ratio; c.oy=py-(py-(c.oy||0))*ratio; c.scale=ns;
+    const i2=im(); if(i2) layoutArtImg(art,i2,c);
+    clearTimeout(art._ws); art._ws=setTimeout(()=>save(CHAR_KEY,chars),200);
+  }, {passive:false});
+
+  art.addEventListener("dblclick", e=>{ if(!c.img) return;
+    c.scale=1; c.ox=0; c.oy=0; const i2=im(); if(i2) layoutArtImg(art,i2,c); save(CHAR_KEY,chars); });
+}
+
+/* 카드 순서: 그립을 잡고 드래그해서 자유롭게 이동 */
+function attachReorder(grip, card){
+  grip.addEventListener("pointerdown", e=>{
+    e.preventDefault(); e.stopPropagation();
+    grip.setPointerCapture(e.pointerId);
+    card.classList.add("dragging"); document.body.style.userSelect="none";
+    const move=ev=>{
+      const y=ev.clientY;
+      const sibs=[...cardsEl.querySelectorAll(".card:not(.dragging)")];
+      let ref=null;
+      for(const s of sibs){ const r=s.getBoundingClientRect(); if(y<r.top+r.height/2){ ref=s; break; } }
+      cardsEl.insertBefore(card, ref || cardsEl.querySelector(".addcard"));
+    };
+    const up=()=>{
+      grip.removeEventListener("pointermove",move);
+      grip.removeEventListener("pointerup",up);
+      card.classList.remove("dragging"); document.body.style.userSelect="";
+      const order=[...cardsEl.querySelectorAll(".card")].map(c=>+c.dataset.ci);
+      chars=order.map(ci=>chars[ci]); save(CHAR_KEY,chars); render();
+    };
+    grip.addEventListener("pointermove",move);
+    grip.addEventListener("pointerup",up);
+  });
 }
 
 function addChar(){
@@ -308,6 +459,7 @@ function addChar(){
   const last=all[all.length-1]; if(last){ const nm=last.querySelector(".name"); nm&&nm.focus(); }
 }
 render();
+let _rz; window.addEventListener("resize", ()=>{ clearTimeout(_rz); _rz=setTimeout(relayoutCards,120); });
 
 function readImg(file,cb){ const r=new FileReader();
   r.onload=()=>{ const im=new Image(); im.onload=()=>{
@@ -429,7 +581,7 @@ function drawCard(ctx,c,img,x,y,w,h,e){
 
   const artX=x+w*0.48, artW=w-w*0.48;
   ctx.save(); ctx.beginPath(); ctx.rect(artX,y,artW,h); ctx.clip();
-  if(img) drawCover(ctx,img,artX,y,artW,h,0.26);
+  if(img) drawImgT(ctx,img,artX,y,artW,h,c);
   else{ const g=ctx.createLinearGradient(artX,y,artX+artW,y+h);
     g.addColorStop(0,c.accent); g.addColorStop(1,tint(c.accent,15));
     ctx.fillStyle=g; ctx.fillRect(artX,y,artW,h); }
@@ -454,9 +606,14 @@ function drawCard(ctx,c,img,x,y,w,h,e){
   roundRect(ctx,x+.5,y+.5,w-1,h-1,12); ctx.stroke(); ctx.restore();
 }
 
-function drawCover(ctx,img,dx,dy,dw,dh,fy){
-  const s=Math.max(dw/img.width,dh/img.height), sw=dw/s, sh=dh/s;
-  ctx.drawImage(img,(img.width-sw)/2,(img.height-sh)*(fy??.5),sw,sh,dx,dy,dw,dh); }
+function drawImgT(ctx,img,dx,dy,dw,dh,c){
+  const iw=img.width, ih=img.height;
+  const cover=Math.max(dw/iw, dh/ih);
+  const s=cover*(c.scale||1);
+  const w2=iw*s, h2=ih*s;
+  const cx=dx+dw/2 + (c.ox||0)*dw, cy=dy+dh/2 + (c.oy||0)*dh;
+  ctx.drawImage(img, cx-w2/2, cy-h2/2, w2, h2);
+}
 function roundRect(ctx,x,y,w,h,r){ if(ctx.roundRect){ctx.beginPath();ctx.roundRect(x,y,w,h,r);return;}
   ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath(); }
