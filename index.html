@@ -227,8 +227,10 @@ let meta  = load(META_KEY, null)  || {...DEFAULT_META};
 let chars = load(CHAR_KEY, null)  || DEFAULT_CHARS.map(c=>({...c}));
 let theme = load(THEME_KEY, null) || {...DEFAULT_THEME};
 
-function load(k,fb){ try{ const r=localStorage.getItem(k); return r?JSON.parse(r):fb; }catch(e){ return fb; } }
-function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+/* 자동 저장 꺼짐 — 새로고침하면 항상 기본값으로 시작합니다. */
+function load(k,fb){ return fb; }
+function save(k,v){}
+try{ ["deck-meta-v1","deck-chars-v1","deck-theme-v1"].forEach(k=>localStorage.removeItem(k)); }catch(e){}
 
 /* ---------- color utils ---------- */
 function h2rgb(h){ const n=parseInt(h.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
