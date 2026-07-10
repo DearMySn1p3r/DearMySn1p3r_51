@@ -86,6 +86,8 @@
     background:rgba(255,255,255,.92); color:var(--ink); font-size:11px; cursor:pointer;
     display:flex; align-items:center; justify-content:center; line-height:1; padding:0; }
   .card .abtn:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .card .abtn.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .card .art.has.locked{ cursor:default; }
   .card .grip{ position:absolute; top:10px; left:10px; z-index:6;
     width:22px; height:22px; border-radius:6px; border:1px solid var(--line); cursor:grab;
     background:var(--card); color:var(--sub); font-size:11px; line-height:1; padding:0;
@@ -93,8 +95,11 @@
     transition:opacity .2s, background .2s, color .2s; touch-action:none; }
   .card:hover .grip{ opacity:1; }
   .card .grip:hover{ background:var(--ink); color:#fff; border-color:var(--ink); }
-  .card.dragging{ opacity:.8; z-index:10; box-shadow:0 14px 32px -12px rgba(0,0,0,.28); }
+  .card.dragging{ z-index:1000; box-shadow:0 18px 42px -12px rgba(0,0,0,.3); }
   .card.dragging .grip{ cursor:grabbing; }
+  .card-ph{ border:1px dashed var(--line); border-radius:var(--radius);
+    background:rgba(140,140,160,.05); box-sizing:border-box; }
+  body.no-anim .card{ animation:none !important; }
   .card .veil{ position:absolute; inset:0; pointer-events:none;
     background:linear-gradient(90deg, var(--card) 0%, var(--card) 48%, rgba(255,255,255,0) 100%); }
 
@@ -313,15 +318,25 @@ function buildCard(c,i){
     if(im.complete && im.naturalWidth) layoutArtImg(art,im,c);
     if(!art.querySelector(".art-tools")){
       const tools=el("div","art-tools");
+      const bLock=el("button","abtn lock"); bLock.onmousedown=e=>e.stopPropagation();
+      bLock.onclick=e=>{ e.stopPropagation(); c.locked=!c.locked; reflectLock(); save(CHAR_KEY,chars); };
       const bChange=el("button","abtn"); bChange.textContent="⟳"; bChange.title="이미지 변경";
       bChange.onmousedown=e=>e.stopPropagation();
       bChange.onclick=e=>{ e.stopPropagation(); file.click(); };
       const bReset=el("button","abtn"); bReset.textContent="⤢"; bReset.title="맞춤 초기화";
       bReset.onmousedown=e=>e.stopPropagation();
-      bReset.onclick=e=>{ e.stopPropagation(); c.scale=1; c.ox=0; c.oy=0;
+      bReset.onclick=e=>{ e.stopPropagation(); if(c.locked) return; c.scale=1; c.ox=0; c.oy=0;
         const im2=art.querySelector(".art-img"); if(im2) layoutArtImg(art,im2,c); save(CHAR_KEY,chars); };
-      tools.append(bChange,bReset); art.appendChild(tools);
+      tools.append(bLock,bChange,bReset); art.appendChild(tools);
     }
+    reflectLock();
+  }
+  function reflectLock(){
+    const locked=!!c.locked;
+    art.classList.toggle("locked", locked);
+    const b=art.querySelector(".abtn.lock");
+    if(b){ b.textContent=locked?"🔒":"🔓"; b.classList.toggle("on",locked);
+      b.title=locked?"고정 해제":"사진 고정"; }
   }
   function mountPh(){
     art.classList.remove("has");
@@ -382,7 +397,7 @@ function attachPanZoom(art,c){
   const im=()=>art.querySelector(".art-img");
 
   art.addEventListener("pointerdown", e=>{
-    if(!c.img) return;
+    if(!c.img || c.locked) return;
     art.setPointerCapture(e.pointerId);
     ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(ptrs.size===1){ mode="pan"; sx=e.clientX; sy=e.clientY; startOx=c.ox||0; startOy=c.oy||0; }
@@ -394,7 +409,7 @@ function attachPanZoom(art,c){
       startCOx=c.ox||0; startCOy=c.oy||0; }
   });
   art.addEventListener("pointermove", e=>{
-    if(!c.img || !ptrs.has(e.pointerId)) return;
+    if(!c.img || c.locked || !ptrs.has(e.pointerId)) return;
     ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
     const bw=art.clientWidth, bh=art.clientHeight;
     if(mode==="pan" && ptrs.size===1){
@@ -413,7 +428,7 @@ function attachPanZoom(art,c){
   art.addEventListener("pointerup",end); art.addEventListener("pointercancel",end);
 
   art.addEventListener("wheel", e=>{
-    if(!c.img) return; e.preventDefault();
+    if(!c.img || c.locked) return; e.preventDefault();
     const r=art.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
     const cur=c.scale||1, ns=clampScale(cur*Math.exp(-e.deltaY*0.0015)), ratio=ns/cur;
@@ -422,32 +437,54 @@ function attachPanZoom(art,c){
     clearTimeout(art._ws); art._ws=setTimeout(()=>save(CHAR_KEY,chars),200);
   }, {passive:false});
 
-  art.addEventListener("dblclick", e=>{ if(!c.img) return;
+  art.addEventListener("dblclick", e=>{ if(!c.img || c.locked) return;
     c.scale=1; c.ox=0; c.oy=0; const i2=im(); if(i2) layoutArtImg(art,i2,c); save(CHAR_KEY,chars); });
 }
 
-/* 카드 순서: 그립을 잡고 드래그해서 자유롭게 이동 */
+/* 카드 순서: 그립을 잡으면 카드가 커서를 따라 떠오르고 빈자리가 표시됩니다 */
 function attachReorder(grip, card){
   grip.addEventListener("pointerdown", e=>{
+    if(e.button && e.button!==0) return;
     e.preventDefault(); e.stopPropagation();
-    grip.setPointerCapture(e.pointerId);
-    card.classList.add("dragging"); document.body.style.userSelect="none";
+
+    const rect=card.getBoundingClientRect();
+    const grabY=e.clientY-rect.top;
+    const addBtn=cardsEl.querySelector(".addcard");
+
+    const ph=document.createElement("div");
+    ph.className="card-ph"; ph.style.height=rect.height+"px";
+    cardsEl.insertBefore(ph, card);
+
+    card.classList.add("dragging");
+    card.style.position="fixed"; card.style.margin="0";
+    card.style.width=rect.width+"px"; card.style.left=rect.left+"px";
+    card.style.top=(e.clientY-grabY)+"px"; card.style.pointerEvents="none";
+    document.body.style.userSelect="none";
+
     const move=ev=>{
+      card.style.top=(ev.clientY-grabY)+"px";
       const y=ev.clientY;
       const sibs=[...cardsEl.querySelectorAll(".card:not(.dragging)")];
       let ref=null;
       for(const s of sibs){ const r=s.getBoundingClientRect(); if(y<r.top+r.height/2){ ref=s; break; } }
-      cardsEl.insertBefore(card, ref || cardsEl.querySelector(".addcard"));
+      cardsEl.insertBefore(ph, ref || addBtn);
     };
     const up=()=>{
-      grip.removeEventListener("pointermove",move);
-      grip.removeEventListener("pointerup",up);
-      card.classList.remove("dragging"); document.body.style.userSelect="";
+      window.removeEventListener("pointermove",move);
+      window.removeEventListener("pointerup",up);
+      window.removeEventListener("pointercancel",up);
+      cardsEl.insertBefore(card, ph); ph.remove();
+      card.classList.remove("dragging");
+      card.style.position=card.style.margin=card.style.width=card.style.left=card.style.top=card.style.pointerEvents="";
+      document.body.style.userSelect="";
       const order=[...cardsEl.querySelectorAll(".card")].map(c=>+c.dataset.ci);
-      chars=order.map(ci=>chars[ci]); save(CHAR_KEY,chars); render();
+      chars=order.map(ci=>chars[ci]); save(CHAR_KEY,chars);
+      document.body.classList.add("no-anim"); render();
+      requestAnimationFrame(()=>requestAnimationFrame(()=>document.body.classList.remove("no-anim")));
     };
-    grip.addEventListener("pointermove",move);
-    grip.addEventListener("pointerup",up);
+    window.addEventListener("pointermove",move);
+    window.addEventListener("pointerup",up);
+    window.addEventListener("pointercancel",up);
   });
 }
 
