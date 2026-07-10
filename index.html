@@ -182,8 +182,8 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="eyebrow" id="hEyebrow"></div>
-    <h1 class="title" id="hTitle"></h1>
+    <div class="eyebrow" id="hEyebrow" contenteditable spellcheck="false" data-ph="PERSONA ROSTER"></div>
+    <h1 class="title" id="hTitle" contenteditable spellcheck="false" data-ph="PROFILE DECK MAKER"></h1>
     <div class="rule"></div>
     <p class="intro" id="hIntro" contenteditable spellcheck="false" data-ph="설명을 적어주세요"></p>
 
@@ -252,6 +252,8 @@ applyTheme();
 const hEyebrow=document.getElementById("hEyebrow"), hTitle=document.getElementById("hTitle"),
       hIntro=document.getElementById("hIntro");
 hEyebrow.textContent=meta.eyebrow; hTitle.textContent=meta.title; hIntro.textContent=meta.intro;
+bindEditable(hEyebrow, v=>{ meta.eyebrow=v; save(META_KEY,meta); });
+bindEditable(hTitle, v=>{ meta.title=v; save(META_KEY,meta); });
 bindEditable(hIntro, v=>{ meta.intro=v; save(META_KEY,meta); });
 
 function bindEditable(el, onChange, multiline){
