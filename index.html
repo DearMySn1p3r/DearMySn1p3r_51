@@ -539,12 +539,43 @@ document.getElementById("pngBtn").onclick=exportPNG;
 
 const REVEAL=11, STAGGER=7, START_HOLD=3, END_HOLD=14;
 
+const INTRO_FONT="400 12px Outfit, sans-serif", INTRO_MAXW=480, INTRO_LINEH=18, INTRO_MAXLINES=6;
+const _measureCv=document.createElement("canvas"), _measureCx=_measureCv.getContext("2d");
+
+function wrapText(text, maxWidth){
+  _measureCx.font=INTRO_FONT;
+  const words=text.split(/\s+/).filter(Boolean);
+  const lines=[]; let cur="";
+  const fits=s=>_measureCx.measureText(s).width<=maxWidth;
+  for(const word of words){
+    const test=cur?cur+" "+word:word;
+    if(fits(test)){ cur=test; continue; }
+    if(cur) lines.push(cur);
+    if(fits(word)){ cur=word; continue; }
+    // 공백 없이도 넘치는 단어는 글자 단위로 줄바꿈
+    let chunk="";
+    for(const ch of word){
+      const t2=chunk+ch;
+      if(chunk && !fits(t2)){ lines.push(chunk); chunk=ch; } else chunk=t2;
+    }
+    cur=chunk;
+  }
+  if(cur) lines.push(cur);
+  if(lines.length>INTRO_MAXLINES){
+    const last=lines[INTRO_MAXLINES-1];
+    lines.length=INTRO_MAXLINES;
+    lines[INTRO_MAXLINES-1]=last.length>1?last.slice(0,-1)+"…":last+"…"; // 지나치게 길 때만 마지막 줄에 말줄임
+  }
+  return lines.length?lines:[""];
+}
+
 function layout(){
   const W=600, PAD=32, CARD_H=120, GAP=16;
   const introOn=!!(meta.intro && meta.intro.trim());
-  const HEAD=introOn?176:150;
+  const introLines=introOn?wrapText(meta.intro.trim(),INTRO_MAXW):[];
+  const HEAD=introOn?(176+(introLines.length-1)*INTRO_LINEH):150;
   const H=HEAD + chars.length*CARD_H + (chars.length-1)*GAP + PAD;
-  return {W,PAD,CARD_H,GAP,introOn,HEAD,H};
+  return {W,PAD,CARD_H,GAP,introOn,introLines,HEAD,H};
 }
 function newCanvas(L){ const cv=document.createElement("canvas"); cv.width=L.W; cv.height=L.H; return cv; }
 
@@ -558,7 +589,7 @@ async function exportPNG(){
     const imgs=await preload();
     const L=layout(); const cv=newCanvas(L); const ctx=cv.getContext("2d");
     // 모든 카드가 완전히 펼쳐진 최종 상태 한 장
-    drawScene(ctx,L.W,L.H,L.PAD,L.CARD_H,L.GAP,L.HEAD,L.introOn,imgs,1e9,REVEAL,STAGGER,START_HOLD);
+    drawScene(ctx,L.W,L.H,L.PAD,L.CARD_H,L.GAP,L.HEAD,L.introLines,imgs,1e9,REVEAL,STAGGER,START_HOLD);
     fill.style.width="80%";
     cv.toBlob(blob=>{ const u=URL.createObjectURL(blob); const a=document.createElement("a");
       a.href=u; a.download="profile-deck.png"; a.click(); setTimeout(()=>URL.revokeObjectURL(u),4000);
@@ -578,11 +609,11 @@ async function exportGIF(){
     const imgs=await preload();
 
     const L=layout(); const cv=newCanvas(L); const ctx=cv.getContext("2d");
-    const gif=new GIF({workers:2,quality:10,workerScript:workerUrl,width:L.W,height:L.H,background:theme.bg});
+    const gif=new GIF({workers:2,quality:1,workerScript:workerUrl,width:L.W,height:L.H,background:theme.bg});
     const total=START_HOLD + STAGGER*(chars.length-1) + REVEAL + END_HOLD;
 
     for(let f=0; f<total; f++){
-      drawScene(ctx,L.W,L.H,L.PAD,L.CARD_H,L.GAP,L.HEAD,L.introOn,imgs,f,REVEAL,STAGGER,START_HOLD);
+      drawScene(ctx,L.W,L.H,L.PAD,L.CARD_H,L.GAP,L.HEAD,L.introLines,imgs,f,REVEAL,STAGGER,START_HOLD);
       gif.addFrame(ctx,{copy:true, delay:(f===total-1)?900:55});
       if(f%3===0){ fill.style.width=Math.round((f/total)*60)+"%"; text.textContent="펼치는 중…"; await frame(); }
     }
@@ -595,7 +626,7 @@ async function exportGIF(){
     setTimeout(()=>bar.classList.remove("on"),2200); }
 }
 
-function drawScene(ctx,W,H,PAD,CARD_H,GAP,HEAD,introOn,imgs,f,REVEAL,STAGGER,START_HOLD){
+function drawScene(ctx,W,H,PAD,CARD_H,GAP,HEAD,introLines,imgs,f,REVEAL,STAGGER,START_HOLD){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle=theme.bg; ctx.fillRect(0,0,W,H);
 
@@ -606,8 +637,8 @@ function drawScene(ctx,W,H,PAD,CARD_H,GAP,HEAD,introOn,imgs,f,REVEAL,STAGGER,STA
   ctx.fillText(meta.title||"", W/2, 90);
   ctx.letterSpacing="0px";
   ctx.fillStyle=theme.ink; ctx.globalAlpha=.2; ctx.fillRect(W/2-12, 110, 24, 1); ctx.globalAlpha=1;
-  if(introOn){ ctx.fillStyle=theme.sub; ctx.font="400 12px Outfit, sans-serif";
-    ctx.fillText(clip(meta.intro,52), W/2, 138); }
+  if(introLines&&introLines.length){ ctx.fillStyle=theme.sub; ctx.font=INTRO_FONT;
+    introLines.forEach((line,i)=> ctx.fillText(line, W/2, 138+i*INTRO_LINEH)); }
   ctx.textAlign="left";
 
   const x=PAD, w=W-PAD*2; let y=HEAD;
